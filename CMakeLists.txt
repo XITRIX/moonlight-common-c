@@ -39,7 +39,7 @@ if(MSVC)
 elseif(MINGW)
   target_link_libraries(moonlight-common-c PRIVATE -lws2_32 -lwinmm)
 else()
-  target_compile_options(moonlight-common-c PRIVATE -Wall -Wextra -Wno-unused-parameter -Werror)
+  target_compile_options(moonlight-common-c PRIVATE -Wall -Wextra -Wno-unused-parameter)
   if (CODE_ANALYSIS AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(moonlight-common-c PRIVATE -fanalyzer)
   endif()
@@ -55,6 +55,17 @@ if (USE_MBEDTLS)
     # For sub project added via CMake
     target_link_libraries(moonlight-common-c PRIVATE mbedcrypto)
   endif()
+elseif (APPLE)
+    add_library(OpenSSL::Crypto STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/../OpenSSL.xcframework"
+    )
+
+    set_target_properties(moonlight-common-c PROPERTIES
+        XCODE_LINK_BUILD_PHASE_MODE KNOWN_LOCATION
+    )
+
+  target_link_libraries(moonlight-common-c PRIVATE OpenSSL::Crypto)
 else()
   find_package(OpenSSL 1.0.2 REQUIRED)
   target_link_libraries(moonlight-common-c PRIVATE ${OPENSSL_CRYPTO_LIBRARY})

@@ -964,17 +964,15 @@ void LiCompleteVideoFrame(VIDEO_FRAME_HANDLE handle, int drStatus);
 // See ConnListenerSetHdrMode() for more details.
 bool LiGetCurrentHostDisplayHdrMode(void);
 
+typedef struct _SS_POINT {
+    uint16_t x; // Normalized to 50,000
+    uint16_t y; // Normalized to 50,000
+} SS_POINT;
+
 typedef struct _SS_HDR_METADATA {
     // RGB order
-    struct {
-        uint16_t x; // Normalized to 50,000
-        uint16_t y; // Normalized to 50,000
-    } displayPrimaries[3];
-
-    struct {
-        uint16_t x; // Normalized to 50,000
-        uint16_t y; // Normalized to 50,000
-    } whitePoint;
+    SS_POINT displayPrimaries[3];
+    SS_POINT whitePoint;
 
     uint16_t maxDisplayLuminance; // Nits
     uint16_t minDisplayLuminance; // 1/10000th of a nit
