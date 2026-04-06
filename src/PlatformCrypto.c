@@ -64,6 +64,11 @@ bool PltEncryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
             return false;
         }
 
+        if (cipherMode == MBEDTLS_MODE_CBC &&
+            mbedtls_cipher_set_padding_mode(&ctx->ctx, MBEDTLS_PADDING_PKCS7) != 0) {
+            return false;
+        }
+
         if (mbedtls_cipher_setkey(&ctx->ctx, key, keyLength * 8, MBEDTLS_ENCRYPT) != 0) {
             return false;
         }
@@ -112,7 +117,9 @@ bool PltEncryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
                 return false;
             }
 
-            mbedtls_cipher_reset(&ctx->ctx);
+            if (mbedtls_cipher_reset(&ctx->ctx) != 0) {
+                return false;
+            }
         }
 
         if (flags & CIPHER_FLAG_PAD_TO_BLOCK_SIZE) {
@@ -264,6 +271,11 @@ bool PltDecryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
             return false;
         }
 
+        if (cipherMode == MBEDTLS_MODE_CBC &&
+            mbedtls_cipher_set_padding_mode(&ctx->ctx, MBEDTLS_PADDING_PKCS7) != 0) {
+            return false;
+        }
+
         if (mbedtls_cipher_setkey(&ctx->ctx, key, keyLength * 8, MBEDTLS_DECRYPT) != 0) {
             return false;
         }
@@ -307,7 +319,9 @@ bool PltDecryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
                 return false;
             }
 
-            mbedtls_cipher_reset(&ctx->ctx);
+            if (mbedtls_cipher_reset(&ctx->ctx) != 0) {
+                return false;
+            }
         }
 
         if (mbedtls_cipher_update(&ctx->ctx, inputData, inputDataLength, outputData, &outLength) != 0) {
