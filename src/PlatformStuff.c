@@ -4,6 +4,9 @@
 #include <pthread.h>
 #include <psp2/kernel/processmgr.h>
 #endif
+#if defined(__SWITCH__)
+#include <switch.h>
+#endif
 
 // The maximum amount of time before observing an interrupt
 // in PltSleepMsInterruptible().
@@ -19,6 +22,91 @@ static int activeThreads = 0;
 static int activeMutexes = 0;
 static int activeEvents = 0;
 static int activeCondVars = 0;
+
+#if defined(__SWITCH__)
+static int countAllowedCores(u64 affinityMask) {
+    int count = 0;
+
+    for (s32 core = 0; core < 4; core++) {
+        if (affinityMask & (1ULL << core)) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static s32 selectAllowedCore(u64 affinityMask, int ordinal) {
+    s32 lastAllowedCore = -1;
+
+    for (s32 core = 0; core < 4; core++) {
+        if ((affinityMask & (1ULL << core)) == 0) {
+            continue;
+        }
+
+        lastAllowedCore = core;
+        if (ordinal == 0) {
+            return core;
+        }
+
+        ordinal--;
+    }
+
+    return lastAllowedCore;
+}
+
+static void applySwitchThreadHints(const char* name) {
+    if (name == NULL) {
+        return;
+    }
+
+    s32 preferredCore = -1;
+    u64 affinityMask = 0;
+    if (R_FAILED(svcGetThreadCoreMask(&preferredCore, &affinityMask, CUR_THREAD_HANDLE))) {
+        return;
+    }
+
+    const int allowedCoreCount = countAllowedCores(affinityMask);
+    if (allowedCoreCount <= 0) {
+        return;
+    }
+
+    int targetOrdinal = 0;
+    if (strncmp(name, "VideoDec", 8) == 0) {
+        targetOrdinal = allowedCoreCount - 1;
+    }
+    else if (strncmp(name, "VideoRecv", 9) == 0) {
+        targetOrdinal = allowedCoreCount >= 3 ? 1 : 0;
+    }
+    else if (strncmp(name, "AudioDec", 8) == 0) {
+        targetOrdinal = allowedCoreCount >= 2 ? allowedCoreCount - 2 : allowedCoreCount - 1;
+    }
+    else if (strncmp(name, "AudioRecv", 9) == 0) {
+        targetOrdinal = 0;
+    }
+    else if (strncmp(name, "ControlRecv", 11) == 0 ||
+             strncmp(name, "InputSend", 9) == 0) {
+        targetOrdinal = allowedCoreCount >= 3 ? 1 : 0;
+    }
+    else if (strncmp(name, "VideoPing", 9) == 0 ||
+             strncmp(name, "AudioPing", 9) == 0 ||
+             strncmp(name, "LossStats", 9) == 0 ||
+             strncmp(name, "ReqIdrFrame", 11) == 0 ||
+             strncmp(name, "CtrlAsyncCb", 11) == 0 ||
+             strncmp(name, "InvRefFrames", 12) == 0 ||
+             strncmp(name, "AsyncTerm", 9) == 0) {
+        targetOrdinal = 0;
+    }
+    else {
+        return;
+    }
+
+    s32 targetCore = selectAllowedCore(affinityMask, targetOrdinal);
+    if (targetCore >= 0 && targetCore != preferredCore) {
+        svcSetThreadCoreMask(CUR_THREAD_HANDLE, targetCore, (u32)affinityMask);
+    }
+}
+#endif
 
 #if defined(LC_WINDOWS) && !defined(NXDK)
 
@@ -87,6 +175,10 @@ void* ThreadProc(void* context) {
     pthread_setname_np(pthread_self(), ctx->name);
 #elif defined(LC_DARWIN)
     pthread_setname_np(ctx->name);
+#endif
+
+#if defined(__SWITCH__)
+    applySwitchThreadHints(ctx->name);
 #endif
 
     ctx->entry(ctx->context);
