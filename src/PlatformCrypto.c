@@ -8,6 +8,18 @@
 #include <openssl/rand.h>
 #endif
 
+#ifdef USE_MBEDTLS_GCM
+static bool initializeGcm(PPLT_CRYPTO_CONTEXT ctx, unsigned char* key, int keyLength) {
+    if (!ctx->gcmInitialized) {
+        if (mbedtls_gcm_setkey(&ctx->gcm, MBEDTLS_CIPHER_ID_AES, key, keyLength * 8) != 0) {
+            return false;
+        }
+        ctx->gcmInitialized = true;
+    }
+    return true;
+}
+#endif
+
 static int addPkcs7PaddingInPlace(unsigned char* plaintext, int plaintextLen) {
     int paddedLength = ROUND_TO_PKCS7_PADDED_LEN(plaintextLen);
     unsigned char paddingByte = (unsigned char)(16 - (plaintextLen % 16));
@@ -44,6 +56,16 @@ bool PltEncryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
         LC_ASSERT(tag != NULL);
         LC_ASSERT(tagLength > 0);
 
+#ifdef USE_MBEDTLS_GCM
+        if (!initializeGcm(ctx, key, keyLength) ||
+            mbedtls_gcm_crypt_and_tag(&ctx->gcm, MBEDTLS_GCM_ENCRYPT, inputDataLength,
+                                      iv, ivLength, NULL, 0, inputData, outputData,
+                                      tagLength, tag) != 0) {
+            return false;
+        }
+        *outputDataLength = inputDataLength;
+        return true;
+#else
         if (!ctx->initialized) {
             if (psa_crypto_init() != PSA_SUCCESS) {
                 return false;
@@ -95,6 +117,7 @@ bool PltEncryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
         LC_ASSERT(tagOutLen == (size_t)tagLength);
         *outputDataLength = (int)(outLen + finishLen);
         return true;
+#endif
     }
     else if (algorithm == ALGORITHM_AES_CBC) {
         psa_algorithm_t alg = (flags & CIPHER_FLAG_PAD_TO_BLOCK_SIZE) ? PSA_ALG_CBC_NO_PADDING : PSA_ALG_CBC_PKCS7;
@@ -383,6 +406,16 @@ bool PltDecryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
         LC_ASSERT(tag != NULL);
         LC_ASSERT(tagLength > 0);
 
+#ifdef USE_MBEDTLS_GCM
+        if (!initializeGcm(ctx, key, keyLength) ||
+            mbedtls_gcm_auth_decrypt(&ctx->gcm, inputDataLength, iv, ivLength,
+                                     NULL, 0, tag, tagLength, inputData, outputData) != 0) {
+            return false;
+        }
+        recordSuccessfulAuthenticatedDecryption(ctx, flags, replayWindowIndex, sequenceNumber);
+        *outputDataLength = inputDataLength;
+        return true;
+#else
         if (!ctx->initialized) {
             if (psa_crypto_init() != PSA_SUCCESS) {
                 return false;
@@ -433,6 +466,7 @@ bool PltDecryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
         recordSuccessfulAuthenticatedDecryption(ctx, flags, replayWindowIndex, sequenceNumber);
         *outputDataLength = (int)(outLen + verifyLen);
         return true;
+#endif
     }
     else if (algorithm == ALGORITHM_AES_CBC) {
         LC_ASSERT(tag == NULL);
@@ -607,6 +641,9 @@ PPLT_CRYPTO_CONTEXT PltCreateCryptoContext(unsigned char replayWindowCount) {
     ctx->key = PSA_KEY_ID_NULL;
     ctx->cipherOp = psa_cipher_operation_init();
     ctx->cipherOpActive = false;
+#ifdef USE_MBEDTLS_GCM
+    mbedtls_gcm_init(&ctx->gcm);
+#endif
 #else
     ctx->ctx = EVP_CIPHER_CTX_new();
     if (!ctx->ctx) {
@@ -624,6 +661,9 @@ void PltDestroyCryptoContext(PPLT_CRYPTO_CONTEXT ctx) {
     }
 
 #ifdef USE_PSA_CRYPTO
+#ifdef USE_MBEDTLS_GCM
+    mbedtls_gcm_free(&ctx->gcm);
+#endif
     if (ctx->cipherOpActive) {
         psa_cipher_abort(&ctx->cipherOp);
     }

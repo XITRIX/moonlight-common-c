@@ -10,6 +10,16 @@
 
 #ifdef USE_PSA_CRYPTO
 #include <psa/crypto.h>
+#ifdef USE_MBEDTLS
+#include <mbedtls/version.h>
+// MbedTLS 2.x has PSA CBC support, but lacks multipart PSA AEAD support.
+#if MBEDTLS_VERSION_MAJOR < 3
+#define USE_MBEDTLS_GCM
+#endif
+#endif
+#ifdef USE_MBEDTLS_GCM
+#include <mbedtls/gcm.h>
+#endif
 #else
 // Hide the real OpenSSL definition from other code
 typedef struct evp_cipher_ctx_st EVP_CIPHER_CTX;
@@ -30,6 +40,10 @@ typedef struct _PLT_CRYPTO_CONTEXT {
     psa_cipher_operation_t cipherOp;
     bool initialized;
     bool cipherOpActive;
+#ifdef USE_MBEDTLS_GCM
+    mbedtls_gcm_context gcm;
+    bool gcmInitialized;
+#endif
 #else
     EVP_CIPHER_CTX* ctx;
     bool initialized;
